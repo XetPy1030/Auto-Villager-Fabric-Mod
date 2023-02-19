@@ -413,6 +413,7 @@ public class Modules extends System<Modules> {
     }
 
     private void initPlayer() {
+        add(new AutoVillager());
         add(new AntiHunger());
         add(new AutoEat());
         add(new AutoFish());
