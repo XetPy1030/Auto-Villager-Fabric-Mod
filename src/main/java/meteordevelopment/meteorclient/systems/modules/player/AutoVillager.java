@@ -21,6 +21,7 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.enchantment.Enchantment;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.passive.VillagerEntity;
+import net.minecraft.item.AxeItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.nbt.NbtCompound;
@@ -36,7 +37,6 @@ public class AutoVillager extends Module {
     public AutoVillager() {
         super(Categories.Player, "auto-villager", "Automatically create trades with villagers.");
     }
-
 
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
@@ -78,21 +78,6 @@ public class AutoVillager extends Module {
 
     private TradeOfferList offers;
 
-    static class EnchantmentRegistry {
-
-        public static EnchantmentRegistry getInstance() {
-            return new EnchantmentRegistry();
-        }
-
-        public static int getEnchantmentId(Enchantment enchantment) {
-            Identifier enchantId = Registries.ENCHANTMENT.getId(enchantment);
-            return enchantId == null ? -1 : Registries.ENCHANTMENT.getRawId(enchantment);
-        }
-
-        Enchantment get(String name) {
-            return Registries.ENCHANTMENT.get(new Identifier(name));
-        }
-    }
 
     int enchantmentNameToId(String name) {
         EnchantmentRegistry registry = EnchantmentRegistry.getInstance();
@@ -142,11 +127,16 @@ public class AutoVillager extends Module {
 
 //        mc.interactionManager.interactEntity(mc.player, event.villager, Hand.MAIN_HAND);
 
+        var ref = new Object() {
+            boolean isFind = false;
+        };
+
         offers.forEach(offer -> {
             System.out.println(
                 offer.getSellItem().getItem()
             );
             if (offer.getSellItem().getItem() == Items.ENCHANTED_BOOK) {
+                ref.isFind = true;
                 System.out.println("equal");
                 ItemStack book = offer.getSellItem();
                 NbtList tag = book.getNbt().getList("StoredEnchantments", 10);
@@ -166,6 +156,9 @@ public class AutoVillager extends Module {
                 if (isRequiredMaxLevel.get()) {
                     if (getMaxEnchantLevel(enchant) != level) {
                         System.out.println("not max level");
+
+                        updateVillager();
+
                         return;
                     }
                 }
@@ -175,41 +168,85 @@ public class AutoVillager extends Module {
 
                 System.out.println("enchant: " + enchant + " level: " + level + " currentCost: " + currentCost + " minCost: " + minCost);
 
-                if (
-                    currentCost < minCost
-                    || currentCost > 64
-                ) {
+                if (currentCost < minCost || currentCost > 64) {
                     System.out.println("not correct cost");
+
+                    updateVillager();
+
                     return;
                 }
 
                 if (currentCost - minCost > maxDiffMaxPrice.get()) {
                     System.out.println("too expensive");
 
-                    BlockPos blockPos = mc.player.getBlockPos();
-                    blockPos = blockPos.add(
-                        addXPos.get(),
-                        addYPos.get(),
-                        addZPos.get()
-                    );
-                    BlockUtils.breakBlock(blockPos, true);
-
-                    FindItemResult findItemResult = InvUtils.findInHotbar(Items.BOOKSHELF);
-                    BlockUtils.place(blockPos, findItemResult, 100);
+                    updateVillager();
 
                     return;
                 }
             }
         });
-        // get enchantment by name
-//        Enchantment enchantment = Enchantment.byRawId(16);
-//        enchantment.isTreasure();
-//
-//        mc.interactionManager.interactEntity(mc.player, event.villager, Hand.MAIN_HAND);
 
-//        BlockPos blockPos = mc.player.getBlockPos();
-//        blockPos = blockPos.add(0, -1, 0);
-//        BlockUtils.breakBlock(blockPos, true);
+        if (!ref.isFind) {
+            System.out.println("not find");
+
+            updateVillager();
+        }
+    }
+
+    FindItemResult findBestAxeInHotBar() {
+        FindItemResult bestAxe = null;
+        ItemStack bestAxeStack = null;
+
+        for (int i = 0; i < 9; i++) {
+            ItemStack stack = mc.player.getInventory().getStack(i);
+            if (stack.getItem() instanceof AxeItem) {
+                if (bestAxe == null) {
+                    bestAxe = new FindItemResult(i, stack.getCount());
+                    bestAxeStack = stack;
+                } else {
+                    if (stack.getDamage() < bestAxeStack.getDamage()) {
+                        bestAxe = new FindItemResult(i, stack.getCount());
+                    }
+                }
+            }
+        }
+
+        if (bestAxe == null) {
+            bestAxe = new FindItemResult(0, mc.player.getInventory().getStack(0).getCount());
+        }
+
+        return bestAxe;
+    }
+
+    private void updateVillager() {
+        var ref = new Object() {
+            BlockPos blockPos = mc.player.getBlockPos();
+        };
+        ref.blockPos = ref.blockPos.add(
+            addXPos.get(),
+            addYPos.get(),
+            addZPos.get()
+        );
+        System.out.println("blockPos: " + ref.blockPos);
+        mc.player.getInventory().selectedSlot = findBestAxeInHotBar().slot();
+        BlockUtils.breakBlock(ref.blockPos, true);
+
+        FindItemResult findItemResult = InvUtils.findInHotbar(Items.LECTERN);
+        System.out.println(
+            "findItemResult: " + findItemResult.slot()
+        );
+
+        mc.player.getInventory().selectedSlot = findItemResult.slot();
+
+        // на следующем тике поставить с помощью BlockUtils. Использовать Thread.sleep(100);
+        new Thread(() -> {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            BlockUtils.place(ref.blockPos, findItemResult, 100);
+        }).start();
     }
 
     @EventHandler
@@ -217,62 +254,19 @@ public class AutoVillager extends Module {
         this.offers = event.offers;
         System.out.println("TradeOffersUpdatedEvent " + offers.size());
     }
+}
 
-    @EventHandler
-    private void onTick(TickEvent.Post event) {
-        if (mc.player == null || mc.world == null) return;
+class EnchantmentRegistry {
+    public static EnchantmentRegistry getInstance() {
+        return new EnchantmentRegistry();
+    }
 
-        for (Entity entity : mc.world.getEntities()) {
-            if (entity instanceof VillagerEntity) {
-                VillagerEntity villager = (VillagerEntity) entity;
-            }
-//            if (entity instanceof VillagerEntity) {
-//                // если животное поблизости - взять его в руки
-//                mc.interactionManager.interactEntity(mc.player, entity, Hand.MAIN_HAND);
-//                // если в руках есть книга
-//                if (mc.player.getMainHandStack().getItem() == Items.ENCHANTED_BOOK) {
-//                    // если вторая рука пуста
-//                    if (mc.player.getOffHandStack().isEmpty()) {
-//                        // взять вторую руку
-//                        mc.interactionManager.interactItem(mc.player, mc.world, Hand.MAIN_HAND);
-//                    }
-//                    // если вторая рука не пуста
-//                    else {
-//                        // выбросить вторую руку
-//                        mc.interactionManager.dropItem(mc.player.getOffHandStack(), false);
-//                        // взять вторую руку
-//                        mc.interactionManager.interactItem(mc.player, mc.world, Hand.MAIN_HAND);
-//                    }
-//                }
-//                // если в руках нет книги
-//                else {
-//                    // выбросить вторую руку
-//                    mc.interactionManager.dropItem(mc.player.getOffHandStack(), false);
-//                    // выбросить первую руку
-//                    mc.interactionManager.dropItem(mc.player.getMainHandStack(), false);
-//                }
-//            }
-        }
+    public static int getEnchantmentId(Enchantment enchantment) {
+        Identifier enchantId = Registries.ENCHANTMENT.getId(enchantment);
+        return enchantId == null ? -1 : Registries.ENCHANTMENT.getRawId(enchantment);
+    }
 
-        if (mc.player.currentScreenHandler instanceof MerchantScreenHandler) {
-            MerchantScreenHandler villagerScreenHandler = (MerchantScreenHandler) mc.player.currentScreenHandler;
-            villagerScreenHandler.getRecipes().forEach(recipe -> {
-                if (
-                    recipe.getSellItem().getCount() == 1 &&
-                    recipe.getSecondBuyItem().getCount() == 1 &&
-                        recipe.getSellItem().getName().getString().equals("Чародейская книга")
-                ) {
-                    ItemStack enchantedBook = recipe.getSellItem();
-                    NbtList enchantments = enchantedBook.getNbt().getList("StoredEnchantments", 10);
-                    enchantments.forEach(enchantment -> {
-                        NbtCompound enchantmentCompound = (NbtCompound) enchantment;
-                        String enchantmentName = enchantmentCompound.getString("id");
-                        int enchantmentLevel = enchantmentCompound.getInt("lvl");
-
-//                        System.out.println(enchantmentName + " " + enchantmentLevel);
-                    });
-                }
-            });
-        }
+    Enchantment get(String name) {
+        return Registries.ENCHANTMENT.get(new Identifier(name));
     }
 }
