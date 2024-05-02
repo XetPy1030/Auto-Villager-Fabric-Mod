@@ -1,3 +1,7 @@
+## Addon XetPy AutoVillager
+Позволяет включив плагин автоматически получить нужно зачарование путем обновления торгов Библиотекаря.
+
+WARNING: Убрал GameRendererMixin из client-mixins, был трабл с запуском, в прочем он не нужен для моего аддона.
 
 <p align="center">
 <img src="https://meteorclient.com/icon.png" alt="meteor-client-logo" width="15%"/>

@@ -73,7 +73,7 @@ set CLASSPATH=%APP_HOME%\gradle\wrapper\gradle-wrapper.jar
 
 @rem Execute Gradle
 "%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -classpath "%CLASSPATH%" org.gradle.wrapper.GradleWrapperMain %*
-move build\libs\meteor-client-0.5.2.jar C:\Users\xet\AppData\Roaming\.minecraft\mods
+move build\libs\meteor-client-0.5.6.jar C:\Users\xet\AppData\Roaming\.minecraft\mods
 
 :end
 @rem End local scope for the variables with windows NT shell

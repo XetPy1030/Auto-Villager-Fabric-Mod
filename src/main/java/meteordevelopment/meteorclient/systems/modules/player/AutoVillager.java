@@ -8,29 +8,30 @@ package meteordevelopment.meteorclient.systems.modules.player;
 import meteordevelopment.meteorclient.events.entity.VillagerEvent;
 import meteordevelopment.meteorclient.events.entity.VillagerTradesEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
-import meteordevelopment.meteorclient.settings.BoolSetting;
-import meteordevelopment.meteorclient.settings.IntSetting;
-import meteordevelopment.meteorclient.settings.Setting;
-import meteordevelopment.meteorclient.settings.SettingGroup;
+import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Categories;
+import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.block.Block;
 import net.minecraft.enchantment.Enchantment;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.item.AxeItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
-import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.Registries;
-import net.minecraft.screen.MerchantScreenHandler;
+import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.village.TradeOfferList;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 
 public class AutoVillager extends Module {
@@ -76,35 +77,39 @@ public class AutoVillager extends Module {
         .build()
     );
 
+    private final Setting<String> needEnchant = sgGeneral.add(new StringSetting.Builder()
+        .name("enchant")
+        .description("The need description for find")
+        .defaultValue("")
+        .build()
+    );
+
+    private final Setting<Boolean> swingHand = sgGeneral.add(new BoolSetting.Builder()
+        .name("swing-hand")
+        .description("Swing hand client side.")
+        .defaultValue(true)
+        .build()
+    );
+
     private TradeOfferList offers;
 
+    private final List<MyBlock> blocks = new ArrayList<>();
 
-    int enchantmentNameToId(String name) {
-        EnchantmentRegistry registry = EnchantmentRegistry.getInstance();
-        Enchantment enchantment = registry.get(name);
-        if (enchantment == null) {
-            return -1; // Enchantment not found
-        }
-        return EnchantmentRegistry.getEnchantmentId(enchantment);
+    private boolean isPlaceLectern = false;
+
+    private BlockPos lecternPos;
+
+    @Override
+    public void onActivate() {
+        lecternPos = getBlockPos();
     }
 
-    int getMinCostEnchantment(String enchantName, int enchantmentLevel) {
-        int idEnchant = enchantmentNameToId(enchantName);
-        if (idEnchant == -1) {
-            return -1;
-        }
-        Enchantment enchantment = Enchantment.byRawId(idEnchant);
-
-        int minCost = 2;
-        minCost += enchantmentLevel * 3;
-        if (enchantment.isTreasure()) {
-            minCost *= 2;
-        }
-        if (minCost > 64) {
-            minCost = 64;
-        }
-
-        return minCost;
+    @Override
+    public void onDeactivate() {
+        lecternPos = null;
+        isPlaceLectern = false;
+        blocks.clear();
+        offers.clear();
     }
 
     int getMaxEnchantLevel(String enchantName) {
@@ -113,6 +118,7 @@ public class AutoVillager extends Module {
             return -1;
         }
         Enchantment enchantment = Enchantment.byRawId(idEnchant);
+        assert enchantment != null;
         return enchantment.getMaxLevel();
     }
 
@@ -125,20 +131,19 @@ public class AutoVillager extends Module {
             "offers: " + offers.size() + " " + offers
         );
 
-//        mc.interactionManager.interactEntity(mc.player, event.villager, Hand.MAIN_HAND);
-
-        var ref = new Object() {
-            boolean isFind = false;
-        };
+        AtomicBoolean isFind = new AtomicBoolean(false);
 
         offers.forEach(offer -> {
             System.out.println(
                 offer.getSellItem().getItem()
             );
             if (offer.getSellItem().getItem() == Items.ENCHANTED_BOOK) {
-                ref.isFind = true;
+                isFind.set(true);
                 System.out.println("equal");
                 ItemStack book = offer.getSellItem();
+                if (book.getNbt() == null) {
+                    return;
+                }
                 NbtList tag = book.getNbt().getList("StoredEnchantments", 10);
                 System.out.println(
                     "tag: " + tag
@@ -149,6 +154,11 @@ public class AutoVillager extends Module {
                 System.out.println(
                     "enchant: " + enchant + " level: " + level
                 );
+                if (!needEnchant.get().equals("") && !enchant.equals(needEnchant.get())) {
+                    System.out.println("not equal enchant");
+                    updateVillager();
+                    return;
+                }
                 System.out.println(
                     "max: " + getMaxEnchantLevel(enchant)
                 );
@@ -186,7 +196,7 @@ public class AutoVillager extends Module {
             }
         });
 
-        if (!ref.isFind) {
+        if (!isFind.get()) {
             System.out.println("not find");
 
             updateVillager();
@@ -194,6 +204,8 @@ public class AutoVillager extends Module {
     }
 
     FindItemResult findBestAxeInHotBar() {
+        assert mc.player != null;
+
         FindItemResult bestAxe = null;
         ItemStack bestAxeStack = null;
 
@@ -215,44 +227,143 @@ public class AutoVillager extends Module {
             bestAxe = new FindItemResult(0, mc.player.getInventory().getStack(0).getCount());
         }
 
+        System.out.println("Best axe: " + bestAxe.slot());
+
         return bestAxe;
     }
 
     private void updateVillager() {
-        var ref = new Object() {
-            BlockPos blockPos = mc.player.getBlockPos();
-        };
-        ref.blockPos = ref.blockPos.add(
-            addXPos.get(),
-            addYPos.get(),
-            addZPos.get()
-        );
-        System.out.println("blockPos: " + ref.blockPos);
         mc.player.getInventory().selectedSlot = findBestAxeInHotBar().slot();
-        BlockUtils.breakBlock(ref.blockPos, true);
+        MyBlock block = new MyBlock();
+        block.set(lecternPos, Direction.DOWN);
+
+        if (blocks.size() != 0) {
+            System.out.println("Blocks is not length 0");
+            return;
+        }
+
+        blocks.add(block);
+    }
+
+    private void onLecternMined() {
+        isPlaceLectern = true;
+    }
+
+    private void attemptPlaceLectern() {
+        if (!isPlaceLectern) {
+            return;
+        }
 
         FindItemResult findItemResult = InvUtils.findInHotbar(Items.LECTERN);
         System.out.println(
             "findItemResult: " + findItemResult.slot()
         );
+        if (findItemResult.slot() == -1) {
+            return;
+        }
+
+        isPlaceLectern = false;
 
         mc.player.getInventory().selectedSlot = findItemResult.slot();
 
-        // на следующем тике поставить с помощью BlockUtils. Использовать Thread.sleep(100);
-        new Thread(() -> {
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
+        BlockUtils.place(lecternPos, findItemResult, 100);
+    }
+
+    private BlockPos getBlockPos() {
+        BlockPos playerPos = mc.player.getBlockPos();
+        playerPos = playerPos.add(
+            addXPos.get(),
+            addYPos.get(),
+            addZPos.get()
+        );
+        System.out.println("blockPos: " + playerPos);
+
+        return playerPos;
+    }
+
+    @EventHandler
+    private void onTick(TickEvent.Pre event) {
+        int oldBlocksLength = blocks.size();
+        blocks.removeIf(MyBlock::shouldRemove);
+        int newBlocksLength = blocks.size();
+
+        if (oldBlocksLength != newBlocksLength) {
+            onLecternMined();
+        }
+
+        if (!blocks.isEmpty()) {
+            blocks.get(0).mine();
+        }
+
+        attemptPlaceLectern();
+    }
+
+    private class MyBlock {
+        public BlockPos blockPos;
+        public Direction direction;
+        public Block originalBlock;
+        public boolean mining;
+
+        public void set(BlockPos pos, Direction dir) {
+            this.blockPos = pos;
+            this.direction = dir;
+            this.originalBlock = mc.world.getBlockState(pos).getBlock();
+            System.out.println("original " + this.originalBlock.getName());
+            this.mining = false;
+        }
+
+        public boolean shouldRemove() {
+            return mc.world.getBlockState(blockPos).getBlock() != originalBlock || Utils.distance(mc.player.getX() - 0.5, mc.player.getY() + mc.player.getEyeHeight(mc.player.getPose()), mc.player.getZ() - 0.5, blockPos.getX() + direction.getOffsetX(), blockPos.getY() + direction.getOffsetY(), blockPos.getZ() + direction.getOffsetZ()) > mc.interactionManager.getReachDistance();
+        }
+
+        public void mine() {
+            if (!mining) {
+                mc.player.swingHand(Hand.MAIN_HAND);
+                mining = true;
             }
-            BlockUtils.place(ref.blockPos, findItemResult, 100);
-        }).start();
+            else updateBlockBreakingProgress();
+        }
+
+        private void updateBlockBreakingProgress() {
+            BlockUtils.breakBlock(blockPos, swingHand.get());
+        }
     }
 
     @EventHandler
     private void onTradesUpdate(VillagerTradesEvent event) {
         this.offers = event.offers;
         System.out.println("TradeOffersUpdatedEvent " + offers.size());
+    }
+
+
+    int enchantmentNameToId(String name) {
+        EnchantmentRegistry registry = EnchantmentRegistry.getInstance();
+        Enchantment enchantment = registry.get(name);
+        if (enchantment == null) {
+            return -1; // Enchantment not found
+        }
+        return EnchantmentRegistry.getEnchantmentId(enchantment);
+    }
+
+    int getMinCostEnchantment(String enchantName, int enchantmentLevel) {
+        int idEnchant = enchantmentNameToId(enchantName);
+        if (idEnchant == -1) {
+            return -1;
+        }
+        Enchantment enchantment = Enchantment.byRawId(idEnchant);
+
+        int minCost = 2;
+        minCost += enchantmentLevel * 3;
+        assert enchantment != null;
+
+        if (enchantment.isTreasure()) {
+            minCost *= 2;
+        }
+        if (minCost > 64) {
+            minCost = 64;
+        }
+
+        return minCost;
     }
 }
 

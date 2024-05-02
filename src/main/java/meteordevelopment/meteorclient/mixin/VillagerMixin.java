@@ -11,8 +11,6 @@ import meteordevelopment.meteorclient.events.entity.VillagerTradesEvent;
 import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.village.TradeOfferList;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -22,6 +20,9 @@ public abstract class VillagerMixin  {
     @Inject(method = "handleStatus", at = @At("HEAD"), cancellable = true)
     private void onHandleStatus(byte status, CallbackInfo info) {
         VillagerEntity villager = (VillagerEntity) (Object) this;
+        if (villager.getOffers() == null) {
+            return;
+        }
         System.out.println(
             "VillagerMixin.onHandleStatus: " + villager.getOffers().size()
         );
@@ -40,23 +41,28 @@ public abstract class VillagerMixin  {
         MeteorClient.EVENT_BUS.post(VillagerEvent.get(status, villager));
     }
 
-    @Inject(method = "setOffers", at = @At("TAIL"), cancellable = true)
-    private void onSetOffers(TradeOfferList offers, CallbackInfo info) {
-        VillagerEntity villager = (VillagerEntity) (Object) this;
-//        MeteorClient.EVENT_BUS.post(VillagerEvent.get(offers));
-    }
-
     @Inject(method = "setVillagerData", at = @At("TAIL"), cancellable = true)
     private void onSetVillagerData(CallbackInfo info) {
-        System.out.println(
-            "VillagerMixin.onSetVillagerData: " + ((VillagerEntity) (Object) this).getOffers().size());
-        MeteorClient.EVENT_BUS.post(VillagerTradesEvent.get(((VillagerEntity) (Object) this).getOffers()));
+        VillagerEntity villager = (VillagerEntity) (Object) this;
+        if (villager == null) {
+            return;
+        }
+        if (villager.getOffers() == null) {
+            return;
+        }
+        MeteorClient.EVENT_BUS.post(VillagerTradesEvent.get(villager.getOffers()));
     }
 
     @Inject(method = "setCustomer", at = @At("TAIL"), cancellable = true)
     private void onSetCustomer(CallbackInfo info) {
+        VillagerEntity villager = (VillagerEntity) (Object) this;
+
+        if (villager.getOffers() == null) {
+            return;
+        }
+
         System.out.println(
-            "VillagerMixin.onSetCustomer: " + ((VillagerEntity) (Object) this).getOffers().size());
+            "VillagerMixin.onSetCustomer: " + villager.getOffers().size());
     }
 
 }
