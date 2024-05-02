@@ -7,6 +7,7 @@ package meteordevelopment.meteorclient.systems.modules.movement;
 
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.meteor.KeyEvent;
+import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.gui.WidgetScreen;
 import meteordevelopment.meteorclient.mixin.CreativeInventoryScreenAccessor;
@@ -14,7 +15,6 @@ import meteordevelopment.meteorclient.mixin.KeyBindingAccessor;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
-import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.misc.input.Input;
 import meteordevelopment.meteorclient.utils.misc.input.KeyAction;
 import meteordevelopment.orbit.EventHandler;
@@ -23,6 +23,7 @@ import net.minecraft.client.gui.screen.ingame.*;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemGroups;
+import net.minecraft.util.math.MathHelper;
 
 import static org.lwjgl.glfw.GLFW.*;
 
@@ -36,57 +37,57 @@ public class GUIMove extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
     private final Setting<Screens> screens = sgGeneral.add(new EnumSetting.Builder<Screens>()
-            .name("gUIs")
-            .description("Which GUIs to move in.")
-            .defaultValue(Screens.Inventory)
-            .build()
+        .name("guis")
+        .description("Which GUIs to move in.")
+        .defaultValue(Screens.Inventory)
+        .build()
     );
 
     private final Setting<Boolean> jump = sgGeneral.add(new BoolSetting.Builder()
-            .name("jump")
-            .description("Allows you to jump while in GUIs.")
-            .defaultValue(true)
-            .onChanged(aBoolean -> {
-                if (isActive() && !aBoolean) set(mc.options.jumpKey, false);
-            })
-            .build()
+        .name("jump")
+        .description("Allows you to jump while in GUIs.")
+        .defaultValue(true)
+        .onChanged(aBoolean -> {
+            if (isActive() && !aBoolean) set(mc.options.jumpKey, false);
+        })
+        .build()
     );
 
     private final Setting<Boolean> sneak = sgGeneral.add(new BoolSetting.Builder()
-            .name("sneak")
-            .description("Allows you to sneak while in GUIs.")
-            .defaultValue(true)
-            .onChanged(aBoolean -> {
-                if (isActive() && !aBoolean) set(mc.options.sneakKey, false);
-            })
-            .build()
+        .name("sneak")
+        .description("Allows you to sneak while in GUIs.")
+        .defaultValue(true)
+        .onChanged(aBoolean -> {
+            if (isActive() && !aBoolean) set(mc.options.sneakKey, false);
+        })
+        .build()
     );
 
     private final Setting<Boolean> sprint = sgGeneral.add(new BoolSetting.Builder()
-            .name("sprint")
-            .description("Allows you to sprint while in GUIs.")
-            .defaultValue(true)
-            .onChanged(aBoolean -> {
-                if (isActive() && !aBoolean) set(mc.options.sprintKey, false);
-            })
-            .build()
+        .name("sprint")
+        .description("Allows you to sprint while in GUIs.")
+        .defaultValue(true)
+        .onChanged(aBoolean -> {
+            if (isActive() && !aBoolean) set(mc.options.sprintKey, false);
+        })
+        .build()
     );
 
     private final Setting<Boolean> arrowsRotate = sgGeneral.add(new BoolSetting.Builder()
-            .name("arrows-rotate")
-            .description("Allows you to use your arrow keys to rotate while in GUIs.")
-            .defaultValue(true)
-            .build()
+        .name("arrows-rotate")
+        .description("Allows you to use your arrow keys to rotate while in GUIs.")
+        .defaultValue(true)
+        .build()
     );
 
     private final Setting<Double> rotateSpeed = sgGeneral.add(new DoubleSetting.Builder()
-            .name("rotate-speed")
-            .description("Rotation speed while in GUIs.")
-            .defaultValue(4)
-            .min(0)
-            .build()
+        .name("rotate-speed")
+        .description("Rotation speed while in GUIs.")
+        .defaultValue(4)
+        .min(0)
+        .build()
     );
-
+    
     public GUIMove() {
         super(Categories.Movement, "gui-move", "Allows you to perform various actions while in GUIs.");
     }
@@ -101,6 +102,13 @@ public class GUIMove extends Module {
         if (jump.get()) set(mc.options.jumpKey, false);
         if (sneak.get()) set(mc.options.sneakKey, false);
         if (sprint.get()) set(mc.options.sprintKey, false);
+    }
+
+    public boolean disableSpace() {
+        return isActive() && jump.get() && mc.options.jumpKey.isDefault();
+    }
+    public boolean disableArrows() {
+        return isActive() && arrowsRotate.get();
     }
 
     @EventHandler
@@ -118,18 +126,27 @@ public class GUIMove extends Module {
         if (sneak.get()) set(mc.options.sneakKey, Input.isPressed(mc.options.sneakKey));
         if (sprint.get()) set(mc.options.sprintKey, Input.isPressed(mc.options.sprintKey));
 
+    }
+
+    @EventHandler
+    private void onRender3D(Render3DEvent event) {
+        if (skip()) return;
+        if (screens.get() == Screens.GUI && !(mc.currentScreen instanceof WidgetScreen)) return;
+        if (screens.get() == Screens.Inventory && mc.currentScreen instanceof WidgetScreen) return;
+
+        float rotationDelta = Math.min((float) (rotateSpeed.get() * event.frameTime * 20f), 100);
+
         if (arrowsRotate.get()) {
             float yaw = mc.player.getYaw();
             float pitch = mc.player.getPitch();
 
-            for (int i = 0; i < (rotateSpeed.get() * 2); i++) {
-                if (Input.isKeyPressed(GLFW_KEY_LEFT)) yaw -= 0.5;
-                if (Input.isKeyPressed(GLFW_KEY_RIGHT)) yaw += 0.5;
-                if (Input.isKeyPressed(GLFW_KEY_UP)) pitch -= 0.5;
-                if (Input.isKeyPressed(GLFW_KEY_DOWN)) pitch += 0.5;
-            }
+            if (Input.isKeyPressed(GLFW_KEY_LEFT)) yaw -= rotationDelta;
+            if (Input.isKeyPressed(GLFW_KEY_RIGHT)) yaw += rotationDelta;
+            if (Input.isKeyPressed(GLFW_KEY_UP)) pitch -= rotationDelta;
+            if (Input.isKeyPressed(GLFW_KEY_DOWN)) pitch += rotationDelta;
 
-            pitch = Utils.clamp(pitch, -90, 90);
+
+            pitch = MathHelper.clamp(pitch, -90, 90);
 
             mc.player.setYaw(yaw);
             mc.player.setPitch(pitch);

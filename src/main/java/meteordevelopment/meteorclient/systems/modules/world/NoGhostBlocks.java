@@ -6,28 +6,50 @@
 package meteordevelopment.meteorclient.systems.modules.world;
 
 import meteordevelopment.meteorclient.events.entity.player.BreakBlockEvent;
+import meteordevelopment.meteorclient.events.entity.player.PlaceBlockEvent;
+import meteordevelopment.meteorclient.settings.BoolSetting;
+import meteordevelopment.meteorclient.settings.Setting;
+import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.BlockState;
 
 public class NoGhostBlocks extends Module {
+    private final SettingGroup sgGeneral = settings.getDefaultGroup();
+
+    private final Setting<Boolean> breaking = sgGeneral.add(new BoolSetting.Builder()
+        .name("breaking")
+        .description("Whether to apply for block breaking actions.")
+        .defaultValue(true)
+        .build()
+    );
+
+    public final Setting<Boolean> placing = sgGeneral.add(new BoolSetting.Builder()
+        .name("placing")
+        .description("Whether to apply for block placement actions.")
+        .defaultValue(true)
+        .build()
+    );
 
     public NoGhostBlocks() {
-        super(Categories.World, "no-ghost-blocks", "Attempts to prevent ghost blocks arising from breaking blocks quickly. Especially useful with multiconnect.");
+        super(Categories.World, "no-ghost-blocks", "Attempts to prevent ghost blocks arising.");
     }
 
-    private BlockState lastState;
+    @EventHandler
+    private void onBreakBlock(BreakBlockEvent event) {
+        if (mc.isInSingleplayer() || !breaking.get()) return;
+
+        event.cancel();
+
+        BlockState blockState = mc.world.getBlockState(event.blockPos);
+        blockState.getBlock().onBreak(mc.world, event.blockPos, blockState, mc.player);
+    }
 
     @EventHandler
-    public void onBreakBlock(BreakBlockEvent event) {
-        if (mc.isInSingleplayer())
-            return;
+    private void onPlaceBlock(PlaceBlockEvent event) {
+        if (!placing.get()) return;
 
-        event.setCancelled(true);
-
-        // play the related sounds and particles for the user.
-        BlockState blockState = mc.world.getBlockState(event.blockPos);
-        blockState.getBlock().onBreak(mc.world, event.blockPos, blockState, mc.player); // this doesn't alter the state of the block in the world
+        event.cancel();
     }
 }

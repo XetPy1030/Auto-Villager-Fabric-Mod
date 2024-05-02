@@ -12,6 +12,7 @@ import meteordevelopment.meteorclient.systems.modules.Categories;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.misc.MyPotion;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
+import net.minecraft.client.resource.language.I18n;
 import net.minecraft.item.Item;
 import net.minecraft.item.Items;
 import net.minecraft.potion.Potion;
@@ -23,10 +24,10 @@ public class AutoBrewer extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
 
     private final Setting<MyPotion> potion = sgGeneral.add(new PotionSetting.Builder()
-            .name("potion")
-            .description("The type of potion to brew.")
-            .defaultValue(MyPotion.Strength)
-            .build()
+        .name("potion")
+        .description("The type of potion to brew.")
+        .defaultValue(MyPotion.Strength)
+        .build()
     );
 
     private int ingredientI;
@@ -94,7 +95,7 @@ public class AutoBrewer extends Module {
         }
 
         if (slot == -1) {
-            error("You do not have any %s left in your inventory... disabling.", ingredient.getName().getString());
+            error("You do not have any %s left in your inventory... disabling.", I18n.translate(ingredient.getTranslationKey()));
             toggle();
             return true;
         }
@@ -159,7 +160,7 @@ public class AutoBrewer extends Module {
 
     private boolean takePotions(BrewingStandScreenHandler c) {
         for (int i = 0; i < 3; i++) {
-            InvUtils.quickMove().slotId(i);
+            InvUtils.shiftClick().slotId(i);
 
             if (!c.slots.get(i).getStack().isEmpty()) {
                 error("You do not have a sufficient amount of inventory space... disabling.");

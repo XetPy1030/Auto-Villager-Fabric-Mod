@@ -27,6 +27,7 @@ import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.MathHelper;
 import org.joml.Vector3d;
 
 import java.util.ArrayList;
@@ -78,30 +79,32 @@ public class Trajectories extends Module {
     // Render
 
     private final Setting<ShapeMode> shapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
-            .name("shape-mode")
-            .description("How the shapes are rendered.")
-            .defaultValue(ShapeMode.Both)
-            .build()
+        .name("shape-mode")
+        .description("How the shapes are rendered.")
+        .defaultValue(ShapeMode.Both)
+        .build()
     );
 
     private final Setting<SettingColor> sideColor = sgRender.add(new ColorSetting.Builder()
-            .name("side-color")
-            .description("The side color.")
-            .defaultValue(new SettingColor(255, 150, 0, 35))
-            .build()
+        .name("side-color")
+        .description("The side color.")
+        .defaultValue(new SettingColor(255, 150, 0, 35))
+        .build()
     );
 
     private final Setting<SettingColor> lineColor = sgRender.add(new ColorSetting.Builder()
-            .name("line-color")
-            .description("The line color.")
-            .defaultValue(new SettingColor(255, 150, 0))
-            .build()
+        .name("line-color")
+        .description("The line color.")
+        .defaultValue(new SettingColor(255, 150, 0))
+        .build()
     );
 
     private final ProjectileEntitySimulator simulator = new ProjectileEntitySimulator();
 
     private final Pool<Vector3d> vec3s = new Pool<>(Vector3d::new);
     private final List<Path> paths = new ArrayList<>();
+
+    private static final double MULTISHOT_OFFSET = Math.toRadians(10); // accurate-ish offset of crossbow multishot in radians (10° degrees)
 
     public Trajectories() {
         super(Categories.Render, "trajectories", "Predicts the trajectory of throwable items.");
@@ -137,19 +140,20 @@ public class Trajectories extends Module {
 
         // Get item
         ItemStack itemStack = player.getMainHandStack();
-        if (itemStack == null) itemStack = player.getOffHandStack();
-        if (itemStack == null) return;
-        if (!items.get().contains(itemStack.getItem())) return;
+        if (!items.get().contains(itemStack.getItem())) {
+            itemStack = player.getOffHandStack();
+            if (!items.get().contains(itemStack.getItem())) return;
+        }
 
         // Calculate paths
         if (!simulator.set(player, itemStack, 0, accurate.get(), tickDelta)) return;
         getEmptyPath().calculate();
 
         if (itemStack.getItem() instanceof CrossbowItem && EnchantmentHelper.getLevel(Enchantments.MULTISHOT, itemStack) > 0) {
-            if (!simulator.set(player, itemStack, -10, accurate.get(), tickDelta)) return;
+            if (!simulator.set(player, itemStack, MULTISHOT_OFFSET, accurate.get(), tickDelta)) return; // left multishot arrow
             getEmptyPath().calculate();
 
-            if (!simulator.set(player, itemStack, 10, accurate.get(), tickDelta)) return;
+            if (!simulator.set(player, itemStack, -MULTISHOT_OFFSET, accurate.get(), tickDelta)) return; // right multishot arrow
             getEmptyPath().calculate();
         }
     }
@@ -158,8 +162,8 @@ public class Trajectories extends Module {
         for (Path path : paths) path.clear();
 
         // Calculate paths
-        if (!simulator.set(entity, accurate.get(), tickDelta)) return;
-        getEmptyPath().calculate();
+        if (!simulator.set(entity, accurate.get())) return;
+        getEmptyPath().setStart(entity, tickDelta).calculate();
     }
 
     @EventHandler
@@ -187,14 +191,16 @@ public class Trajectories extends Module {
         private boolean hitQuad, hitQuadHorizontal;
         private double hitQuadX1, hitQuadY1, hitQuadZ1, hitQuadX2, hitQuadY2, hitQuadZ2;
 
-        private Entity entity;
+        private Entity collidingEntity;
+        public Vector3d lastPoint;
 
         public void clear() {
             for (Vector3d point : points) vec3s.free(point);
             points.clear();
 
             hitQuad = false;
-            entity = null;
+            collidingEntity = null;
+            lastPoint = null;
         }
 
         public void calculate() {
@@ -210,7 +216,16 @@ public class Trajectories extends Module {
 
                 addPoint();
             }
+        }
 
+        public Path setStart(Entity entity, double tickDelta) {
+            lastPoint = new Vector3d(
+                MathHelper.lerp(tickDelta, entity.lastRenderX, entity.getX()),
+                MathHelper.lerp(tickDelta, entity.lastRenderY, entity.getY()),
+                MathHelper.lerp(tickDelta, entity.lastRenderZ, entity.getZ())
+            );
+
+            return this;
         }
 
         private void addPoint() {
@@ -254,16 +269,14 @@ public class Trajectories extends Module {
                 points.add(Utils.set(vec3s.get(), result.getPos()));
             }
             else if (result.getType() == HitResult.Type.ENTITY) {
-                entity = ((EntityHitResult) result).getEntity();
+                collidingEntity = ((EntityHitResult) result).getEntity();
 
-                points.add(Utils.set(vec3s.get(), result.getPos()).add(0, entity.getHeight() / 2, 0));
+                points.add(Utils.set(vec3s.get(), result.getPos()).add(0, collidingEntity.getHeight() / 2, 0));
             }
         }
 
         public void render(Render3DEvent event) {
             // Render path
-            Vector3d lastPoint = null;
-
             for (Vector3d point : points) {
                 if (lastPoint != null) event.renderer.line(lastPoint.x, lastPoint.y, lastPoint.z, point.x, point.y, point.z, lineColor.get());
                 lastPoint = point;
@@ -276,12 +289,12 @@ public class Trajectories extends Module {
             }
 
             // Render entity
-            if (entity != null) {
-                double x = (entity.getX() - entity.prevX) * event.tickDelta;
-                double y = (entity.getY() - entity.prevY) * event.tickDelta;
-                double z = (entity.getZ() - entity.prevZ) * event.tickDelta;
+            if (collidingEntity != null) {
+                double x = (collidingEntity.getX() - collidingEntity.prevX) * event.tickDelta;
+                double y = (collidingEntity.getY() - collidingEntity.prevY) * event.tickDelta;
+                double z = (collidingEntity.getZ() - collidingEntity.prevZ) * event.tickDelta;
 
-                Box box = entity.getBoundingBox();
+                Box box = collidingEntity.getBoundingBox();
                 event.renderer.box(x + box.minX, y + box.minY, z + box.minZ, x + box.maxX, y + box.maxY, z + box.maxZ, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
             }
         }
