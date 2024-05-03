@@ -91,6 +91,13 @@ public class AutoVillager extends Module {
         .build()
     );
 
+    private final Setting<Integer> waitBuildTable = sgGeneral.add(new IntSetting.Builder()
+        .name("wait-build")
+        .description("Wait in ms before the place lectern.")
+        .defaultValue(100)
+        .build()
+    );
+
     private TradeOfferList offers;
 
     private final List<MyBlock> blocks = new ArrayList<>();
@@ -137,63 +144,57 @@ public class AutoVillager extends Module {
             System.out.println(
                 offer.getSellItem().getItem()
             );
-            if (offer.getSellItem().getItem() == Items.ENCHANTED_BOOK) {
-                isFind.set(true);
-                System.out.println("equal");
-                ItemStack book = offer.getSellItem();
-                if (book.getNbt() == null) {
-                    return;
-                }
-                NbtList tag = book.getNbt().getList("StoredEnchantments", 10);
-                System.out.println(
-                    "tag: " + tag
-                );
-                String enchant = tag.getCompound(0).getString("id");
-                int level = tag.getCompound(0).getInt("lvl");
+            if (offer.getSellItem().getItem() != Items.ENCHANTED_BOOK) {
+                System.out.println("Not equal item");
+                return;
+            }
 
-                System.out.println(
-                    "enchant: " + enchant + " level: " + level
-                );
-                if (!needEnchant.get().equals("") && !enchant.equals(needEnchant.get())) {
-                    System.out.println("not equal enchant");
-                    updateVillager();
-                    return;
-                }
-                System.out.println(
-                    "max: " + getMaxEnchantLevel(enchant)
-                );
+            System.out.println("equal");
+            ItemStack book = offer.getSellItem();
+            if (book.getNbt() == null) {
+                return;
+            }
+            NbtList tag = book.getNbt().getList("StoredEnchantments", 10);
+            System.out.println(
+                "tag: " + tag
+            );
+            String enchant = tag.getCompound(0).getString("id");
+            int level = tag.getCompound(0).getInt("lvl");
 
-                if (isRequiredMaxLevel.get()) {
-                    if (getMaxEnchantLevel(enchant) != level) {
-                        System.out.println("not max level");
+            System.out.println(
+                "enchant: " + enchant + " level: " + level
+            );
+            if (!needEnchant.get().equals("") && !enchant.equals(needEnchant.get())) {
+                System.out.println("not equal enchant");
+                return;
+            }
+            System.out.println(
+                "max: " + getMaxEnchantLevel(enchant)
+            );
 
-                        updateVillager();
-
-                        return;
-                    }
-                }
-
-                int currentCost = offer.getAdjustedFirstBuyItem().getCount();
-                int minCost = getMinCostEnchantment(enchant, level);
-
-                System.out.println("enchant: " + enchant + " level: " + level + " currentCost: " + currentCost + " minCost: " + minCost);
-
-                if (currentCost < minCost || currentCost > 64) {
-                    System.out.println("not correct cost");
-
-                    updateVillager();
-
-                    return;
-                }
-
-                if (currentCost - minCost > maxDiffMaxPrice.get()) {
-                    System.out.println("too expensive");
-
-                    updateVillager();
-
+            if (isRequiredMaxLevel.get()) {
+                if (getMaxEnchantLevel(enchant) != level) {
+                    System.out.println("not max level");
                     return;
                 }
             }
+
+            int currentCost = offer.getAdjustedFirstBuyItem().getCount();
+            int minCost = getMinCostEnchantment(enchant, level);
+
+            System.out.println("enchant: " + enchant + " level: " + level + " currentCost: " + currentCost + " minCost: " + minCost);
+
+            if (currentCost < minCost || currentCost > 64) {
+                System.out.println("not correct cost");
+                return;
+            }
+
+            if (currentCost - minCost > maxDiffMaxPrice.get()) {
+                System.out.println("too expensive");
+                return;
+            }
+
+            isFind.set(true);
         });
 
         if (!isFind.get()) {
@@ -266,7 +267,14 @@ public class AutoVillager extends Module {
 
         mc.player.getInventory().selectedSlot = findItemResult.slot();
 
-        BlockUtils.place(lecternPos, findItemResult, 100);
+        new Thread(() -> {
+            try {
+                Thread.sleep(waitBuildTable.get());
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            BlockUtils.place(lecternPos, findItemResult, 100);
+        }).start();
     }
 
     private BlockPos getBlockPos() {
